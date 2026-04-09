@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     # Application
     APP_URL: str = "http://localhost:3000"
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173,https://calculo-de-pizza-main.vercel.app"
     ENVIRONMENT: str = "dev"
     API_RATE_LIMIT: str = "100/minute"
 

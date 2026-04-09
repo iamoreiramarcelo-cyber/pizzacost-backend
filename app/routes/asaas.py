@@ -43,6 +43,85 @@ async def subscribe(
     if profile_data.get("subscription_status") == "paid":
         raise AppException("CONFLICT", "Voce ja possui uma assinatura ativa.", 409)
 
+    # --- FIX (D): Check if user already has a subscription in Asaas ---
+    existing_sub_id = profile_data.get("asaas_subscription_id")
+    if existing_sub_id:
+        logger.info(f"User {user.id} already has subscription {existing_sub_id}, checking status...")
+        try:
+            existing_payments = asaas_service.get_subscription_payments(existing_sub_id)
+            confirmed_statuses = {"RECEIVED", "CONFIRMED"}
+            has_confirmed = any(p.get("status") in confirmed_statuses for p in existing_payments)
+
+            # --- FIX (A): If already paid, activate immediately ---
+            if has_confirmed:
+                logger.info(f"Found confirmed payment for existing subscription {existing_sub_id}, activating user {user.id}")
+                db.table("profiles").update({"subscription_status": "paid"}).eq("id", user.id).execute()
+                try:
+                    db.table("subscription_history").insert({
+                        "user_id": user.id,
+                        "old_status": profile_data.get("subscription_status", "free"),
+                        "new_status": "paid",
+                        "reason": "subscribe_existing_confirmed",
+                        "changed_by": "system",
+                    }).execute()
+                except Exception as e:
+                    logger.warning(f"Failed to log subscription history: {e}")
+
+                # Get subscription details for response
+                sub = asaas_service.get_subscription(existing_sub_id)
+                return {"data": {
+                    "subscription_id": existing_sub_id,
+                    "status": sub.get("status"),
+                    "value": sub.get("value"),
+                    "cycle": sub.get("cycle"),
+                    "next_due_date": sub.get("nextDueDate"),
+                    "already_paid": True,
+                    "message": "Assinatura ja estava paga. Ativada com sucesso!",
+                }}
+
+            # Has subscription but not paid yet -- check if subscription is still active
+            existing_sub = asaas_service.get_subscription(existing_sub_id)
+            sub_status = existing_sub.get("status")
+            if sub_status == "ACTIVE":
+                # Subscription exists and is active, return the pending payment info
+                logger.info(f"Subscription {existing_sub_id} is ACTIVE but unpaid, returning existing payment info")
+                pending_payment = next(
+                    (p for p in existing_payments if p.get("status") in ("PENDING", "OVERDUE")),
+                    existing_payments[0] if existing_payments else None,
+                )
+                result = {
+                    "subscription_id": existing_sub_id,
+                    "status": sub_status,
+                    "value": existing_sub.get("value"),
+                    "cycle": existing_sub.get("cycle"),
+                    "next_due_date": existing_sub.get("nextDueDate"),
+                    "existing": True,
+                }
+                if pending_payment:
+                    # Try to get PIX QR code for pending payment
+                    if data.billing_type in ("PIX", "UNDEFINED"):
+                        try:
+                            pix_data = asaas_service.get_payment_pix_qrcode(pending_payment["id"])
+                            result["pix_qrcode_image"] = pix_data.get("encodedImage")
+                            result["pix_payload"] = pix_data.get("payload")
+                        except Exception:
+                            pass
+                    if data.billing_type == "BOLETO":
+                        try:
+                            boleto_data = asaas_service.get_payment_boleto(pending_payment["id"])
+                            result["boleto_barcode"] = boleto_data.get("identificationField")
+                        except Exception:
+                            pass
+                    result["invoice_url"] = pending_payment.get("invoiceUrl")
+                    result["payment_id"] = pending_payment.get("id")
+                return {"data": result}
+
+        except Exception as e:
+            # If we can't check existing subscription (e.g. it was deleted in Asaas),
+            # clear it and create a new one
+            logger.warning(f"Could not check existing subscription {existing_sub_id}: {e}. Will create new one.")
+            db.table("profiles").update({"asaas_subscription_id": None}).eq("id", user.id).execute()
+
     # Find or create Asaas customer
     asaas_customer_id = profile_data.get("asaas_customer_id")
     if not asaas_customer_id:
@@ -83,6 +162,21 @@ async def subscribe(
     payments = asaas_service.get_subscription_payments(subscription["id"])
     first_payment = payments[0] if payments else None
 
+    # --- FIX (E): Check if first payment is already confirmed (credit card / instant PIX) ---
+    if first_payment and first_payment.get("status") in ("RECEIVED", "CONFIRMED"):
+        logger.info(f"First payment {first_payment['id']} already confirmed, activating user {user.id} immediately")
+        db.table("profiles").update({"subscription_status": "paid"}).eq("id", user.id).execute()
+        try:
+            db.table("subscription_history").insert({
+                "user_id": user.id,
+                "old_status": profile_data.get("subscription_status", "free"),
+                "new_status": "paid",
+                "reason": "subscribe_instant_confirm",
+                "changed_by": "system",
+            }).execute()
+        except Exception as e:
+            logger.warning(f"Failed to log subscription history: {e}")
+
     result = {
         "subscription_id": subscription["id"],
         "status": subscription.get("status"),
@@ -113,6 +207,10 @@ async def subscribe(
         result["invoice_url"] = first_payment.get("invoiceUrl")
         result["payment_id"] = first_payment.get("id")
 
+    # Flag if already paid
+    if first_payment and first_payment.get("status") in ("RECEIVED", "CONFIRMED"):
+        result["already_paid"] = True
+
     await audit_log(db, user.id, "SUBSCRIBE", "subscription", subscription["id"], ip=None)
 
     return {"data": result}
@@ -129,54 +227,70 @@ async def get_subscription(
     if not profile.data or not profile.data.get("asaas_subscription_id"):
         return {"data": {"status": profile.data.get("subscription_status", "free") if profile.data else "free", "subscription": None}}
 
+    sub = None
+    payments = None
+    current_status = profile.data.get("subscription_status")
+
     try:
         sub = asaas_service.get_subscription(profile.data["asaas_subscription_id"])
-        payments = asaas_service.get_subscription_payments(profile.data["asaas_subscription_id"])
-
-        # Self-heal: if any payment is confirmed but profile is still free, activate it
-        current_status = profile.data.get("subscription_status")
-        if current_status != "paid" and payments:
-            confirmed_statuses = {"RECEIVED", "CONFIRMED"}
-            has_confirmed = any(p.get("status") in confirmed_statuses for p in payments)
-            if has_confirmed:
-                logger.info(f"Self-healing: activating subscription for user {user.id} (confirmed payment found)")
-                db.table("profiles").update({"subscription_status": "paid"}).eq("id", user.id).execute()
-                try:
-                    db.table("subscription_history").insert({
-                        "user_id": user.id,
-                        "old_status": current_status or "free",
-                        "new_status": "paid",
-                        "reason": "polling_self_heal",
-                        "changed_by": "system",
-                    }).execute()
-                except Exception:
-                    pass
-                current_status = "paid"
-
-        return {"data": {
-            "status": current_status,
-            "subscription": {
-                "id": sub.get("id"),
-                "asaas_status": sub.get("status"),
-                "value": sub.get("value"),
-                "cycle": sub.get("cycle"),
-                "next_due_date": sub.get("nextDueDate"),
-                "billing_type": sub.get("billingType"),
-            },
-            "recent_payments": [
-                {
-                    "id": p.get("id"),
-                    "status": p.get("status"),
-                    "value": p.get("value"),
-                    "due_date": p.get("dueDate"),
-                    "invoice_url": p.get("invoiceUrl"),
-                }
-                for p in (payments[:5] if payments else [])
-            ],
-        }}
     except Exception as e:
-        logger.error(f"Error getting subscription: {e}")
-        return {"data": {"status": profile.data.get("subscription_status", "free"), "subscription": None}}
+        logger.error(f"Error getting subscription from Asaas: {e}")
+        return {"data": {"status": current_status or "free", "subscription": None, "error": "Erro ao consultar assinatura no Asaas."}}
+
+    try:
+        payments = asaas_service.get_subscription_payments(profile.data["asaas_subscription_id"])
+    except Exception as e:
+        logger.error(f"Error getting payments from Asaas: {e}")
+        payments = []
+
+    # --- FIX (B): Self-heal with better logging and no silent swallowing ---
+    if current_status != "paid" and payments:
+        confirmed_statuses = {"RECEIVED", "CONFIRMED"}
+        confirmed_payment = next((p for p in payments if p.get("status") in confirmed_statuses), None)
+        if confirmed_payment:
+            logger.info(
+                f"Self-healing: activating subscription for user {user.id} "
+                f"(payment {confirmed_payment.get('id')} status={confirmed_payment.get('status')})"
+            )
+            try:
+                db.table("profiles").update({"subscription_status": "paid"}).eq("id", user.id).execute()
+                current_status = "paid"
+                logger.info(f"Self-heal SUCCESS: user {user.id} is now 'paid'")
+            except Exception as e:
+                logger.error(f"Self-heal FAILED to update profile for user {user.id}: {e}")
+
+            try:
+                db.table("subscription_history").insert({
+                    "user_id": user.id,
+                    "old_status": profile.data.get("subscription_status", "free"),
+                    "new_status": "paid",
+                    "reason": f"polling_self_heal_payment_{confirmed_payment.get('id')}",
+                    "changed_by": "system",
+                }).execute()
+            except Exception as e:
+                logger.warning(f"Failed to log subscription history during self-heal: {e}")
+
+    return {"data": {
+        "status": current_status,
+        "subscription": {
+            "id": sub.get("id"),
+            "asaas_status": sub.get("status"),
+            "value": sub.get("value"),
+            "cycle": sub.get("cycle"),
+            "next_due_date": sub.get("nextDueDate"),
+            "billing_type": sub.get("billingType"),
+        } if sub else None,
+        "recent_payments": [
+            {
+                "id": p.get("id"),
+                "status": p.get("status"),
+                "value": p.get("value"),
+                "due_date": p.get("dueDate"),
+                "invoice_url": p.get("invoiceUrl"),
+            }
+            for p in (payments[:5] if payments else [])
+        ],
+    }}
 
 
 @router.post("/cancel")
@@ -245,12 +359,16 @@ async def asaas_webhook(request: Request, db: Client = Depends(get_supabase_clie
     try:
         payload = await request.json()
     except Exception:
+        logger.error("Asaas webhook: invalid JSON body")
         return {"status": "error", "reason": "invalid json"}
 
     # Optional: validate webhook token from query param or header
     webhook_token = request.query_params.get("token")
 
-    logger.info(f"Asaas webhook received: {payload.get('event')}")
+    event = payload.get("event")
+    payment_data = payload.get("payment", {})
+    logger.info(f"Asaas webhook received: event={event}, payment_id={payment_data.get('id')}, status={payment_data.get('status')}, external_ref={payment_data.get('externalReference')}")
 
     result = asaas_service.process_webhook(db, payload, webhook_token)
+    logger.info(f"Asaas webhook result: {result}")
     return result

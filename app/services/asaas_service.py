@@ -6,7 +6,13 @@ from app.exceptions import AppException
 
 logger = logging.getLogger("pizzacost.asaas")
 
-ASAAS_BASE_URL = "https://api-sandbox.asaas.com"  # Production: https://api.asaas.com
+
+def _base_url() -> str:
+    """Return Asaas base URL based on environment."""
+    settings = get_settings()
+    if settings.is_production:
+        return "https://api.asaas.com"
+    return "https://api-sandbox.asaas.com"
 
 
 def _headers():
@@ -19,7 +25,7 @@ def _headers():
 
 def create_customer(name: str, email: str, cpf_cnpj: str, phone: str = None) -> dict:
     """Create a customer in Asaas."""
-    with httpx.Client(base_url=ASAAS_BASE_URL, headers=_headers(), timeout=30) as client:
+    with httpx.Client(base_url=_base_url(), headers=_headers(), timeout=30) as client:
         payload = {
             "name": name,
             "email": email,
@@ -38,13 +44,22 @@ def create_customer(name: str, email: str, cpf_cnpj: str, phone: str = None) -> 
 
 def find_customer_by_email(email: str) -> dict | None:
     """Find an existing customer by email."""
-    with httpx.Client(base_url=ASAAS_BASE_URL, headers=_headers(), timeout=30) as client:
+    with httpx.Client(base_url=_base_url(), headers=_headers(), timeout=30) as client:
         response = client.get("/v3/customers", params={"email": email})
         if response.status_code == 200:
             data = response.json()
             if data.get("data") and len(data["data"]) > 0:
                 return data["data"][0]
     return None
+
+
+def find_customer_subscriptions(customer_id: str) -> list:
+    """Find all subscriptions for a customer."""
+    with httpx.Client(base_url=_base_url(), headers=_headers(), timeout=30) as client:
+        response = client.get(f"/v3/subscriptions", params={"customer": customer_id})
+        if response.status_code == 200:
+            return response.json().get("data", [])
+        return []
 
 
 def create_subscription(
@@ -60,7 +75,7 @@ def create_subscription(
     if not next_due_date:
         next_due_date = (date.today() + timedelta(days=1)).isoformat()
 
-    with httpx.Client(base_url=ASAAS_BASE_URL, headers=_headers(), timeout=30) as client:
+    with httpx.Client(base_url=_base_url(), headers=_headers(), timeout=30) as client:
         payload = {
             "customer": customer_id,
             "billingType": billing_type,
@@ -82,7 +97,7 @@ def create_subscription(
 
 def get_subscription(subscription_id: str) -> dict:
     """Get subscription details."""
-    with httpx.Client(base_url=ASAAS_BASE_URL, headers=_headers(), timeout=30) as client:
+    with httpx.Client(base_url=_base_url(), headers=_headers(), timeout=30) as client:
         response = client.get(f"/v3/subscriptions/{subscription_id}")
         if response.status_code != 200:
             raise AppException("NOT_FOUND", "Assinatura nao encontrada.", 404)
@@ -91,7 +106,7 @@ def get_subscription(subscription_id: str) -> dict:
 
 def cancel_subscription(subscription_id: str) -> dict:
     """Cancel a subscription."""
-    with httpx.Client(base_url=ASAAS_BASE_URL, headers=_headers(), timeout=30) as client:
+    with httpx.Client(base_url=_base_url(), headers=_headers(), timeout=30) as client:
         response = client.delete(f"/v3/subscriptions/{subscription_id}")
         if response.status_code != 200:
             raise AppException("PAYMENT_ERROR", "Erro ao cancelar assinatura.", 400)
@@ -100,16 +115,17 @@ def cancel_subscription(subscription_id: str) -> dict:
 
 def get_subscription_payments(subscription_id: str) -> list:
     """Get all payments for a subscription."""
-    with httpx.Client(base_url=ASAAS_BASE_URL, headers=_headers(), timeout=30) as client:
+    with httpx.Client(base_url=_base_url(), headers=_headers(), timeout=30) as client:
         response = client.get(f"/v3/subscriptions/{subscription_id}/payments")
         if response.status_code == 200:
             return response.json().get("data", [])
+        logger.warning(f"Failed to get payments for subscription {subscription_id}: {response.status_code} {response.text}")
         return []
 
 
 def get_payment_pix_qrcode(payment_id: str) -> dict:
     """Get PIX QR code for a payment."""
-    with httpx.Client(base_url=ASAAS_BASE_URL, headers=_headers(), timeout=30) as client:
+    with httpx.Client(base_url=_base_url(), headers=_headers(), timeout=30) as client:
         response = client.get(f"/v3/payments/{payment_id}/pixQrCode")
         if response.status_code == 200:
             return response.json()
@@ -118,7 +134,7 @@ def get_payment_pix_qrcode(payment_id: str) -> dict:
 
 def get_payment_boleto(payment_id: str) -> dict:
     """Get boleto identification field."""
-    with httpx.Client(base_url=ASAAS_BASE_URL, headers=_headers(), timeout=30) as client:
+    with httpx.Client(base_url=_base_url(), headers=_headers(), timeout=30) as client:
         response = client.get(f"/v3/payments/{payment_id}/identificationField")
         if response.status_code == 200:
             return response.json()
@@ -127,7 +143,7 @@ def get_payment_boleto(payment_id: str) -> dict:
 
 def get_payment_status(payment_id: str) -> dict:
     """Get payment status."""
-    with httpx.Client(base_url=ASAAS_BASE_URL, headers=_headers(), timeout=30) as client:
+    with httpx.Client(base_url=_base_url(), headers=_headers(), timeout=30) as client:
         response = client.get(f"/v3/payments/{payment_id}/status")
         if response.status_code == 200:
             return response.json()
@@ -145,6 +161,7 @@ def process_webhook(db, payload: dict, webhook_token: str = None) -> dict:
     payment_data = payload.get("payment", {})
 
     if not event or not payment_data:
+        logger.warning(f"Webhook ignored: missing event or payment data. Payload keys: {list(payload.keys())}")
         return {"status": "ignored", "reason": "invalid payload"}
 
     payment_id = payment_data.get("id")
@@ -155,6 +172,12 @@ def process_webhook(db, payload: dict, webhook_token: str = None) -> dict:
     value = payment_data.get("value", 0)
     billing_type = payment_data.get("billingType")
     invoice_url = payment_data.get("invoiceUrl")
+
+    logger.info(
+        f"Webhook processing: event={event}, payment_id={payment_id}, "
+        f"subscription_id={subscription_id}, customer_id={customer_id}, "
+        f"external_ref={external_ref}, status={status}"
+    )
 
     # Log payment
     try:
@@ -171,29 +194,60 @@ def process_webhook(db, payload: dict, webhook_token: str = None) -> dict:
             "webhook_payload": payload,
         }).execute()
     except Exception as e:
-        logger.warning(f"Failed to log payment: {e}")
+        logger.error(f"Failed to log payment to payment_logs: {e}")
 
-    # Activate on confirmed payment
-    if event in PAYMENT_CONFIRMED_EVENTS and external_ref:
+    # --- FIX (C): More robust activation with fallback to customer lookup ---
+    if event in PAYMENT_CONFIRMED_EVENTS:
+        user_id = external_ref
+
+        # If external_ref is missing, try to find user by customer_id or subscription_id
+        if not user_id and (customer_id or subscription_id):
+            logger.warning(f"Webhook has no externalReference, trying to find user by customer_id={customer_id} or subscription_id={subscription_id}")
+            try:
+                if subscription_id:
+                    lookup = db.table("profiles").select("id").eq("asaas_subscription_id", subscription_id).single().execute()
+                    if lookup.data:
+                        user_id = lookup.data["id"]
+                if not user_id and customer_id:
+                    lookup = db.table("profiles").select("id").eq("asaas_customer_id", customer_id).single().execute()
+                    if lookup.data:
+                        user_id = lookup.data["id"]
+            except Exception as e:
+                logger.error(f"Failed to lookup user by customer/subscription: {e}")
+
+        if not user_id:
+            logger.error(f"Cannot activate subscription: no user found for payment {payment_id} (external_ref={external_ref}, customer={customer_id}, subscription={subscription_id})")
+            return {"status": "error", "reason": "user_not_found"}
+
         try:
-            db.table("profiles").update({
-                "subscription_status": "paid",
-                "asaas_customer_id": customer_id,
-                "asaas_subscription_id": subscription_id,
-            }).eq("id", external_ref).execute()
+            # Get current status before updating
+            current_profile = db.table("profiles").select("subscription_status").eq("id", user_id).single().execute()
+            old_status = current_profile.data.get("subscription_status", "free") if current_profile.data else "free"
 
-            db.table("subscription_history").insert({
-                "user_id": external_ref,
-                "old_status": "free",
-                "new_status": "paid",
-                "reason": f"asaas_{event}",
-                "changed_by": "system",
-            }).execute()
+            update_data = {"subscription_status": "paid"}
+            if customer_id:
+                update_data["asaas_customer_id"] = customer_id
+            if subscription_id:
+                update_data["asaas_subscription_id"] = subscription_id
 
-            logger.info(f"Subscription activated for {external_ref}")
+            result = db.table("profiles").update(update_data).eq("id", user_id).execute()
+            logger.info(f"Profile updated to 'paid' for user {user_id}: {result.data}")
+
+            try:
+                db.table("subscription_history").insert({
+                    "user_id": user_id,
+                    "old_status": old_status,
+                    "new_status": "paid",
+                    "reason": f"asaas_webhook_{event}",
+                    "changed_by": "system",
+                }).execute()
+            except Exception as e:
+                logger.warning(f"Failed to log subscription history: {e}")
+
+            logger.info(f"Subscription activated for user {user_id} via webhook event {event}")
             return {"status": "processed", "action": "activated"}
         except Exception as e:
-            logger.error(f"Activation failed: {e}")
+            logger.error(f"Activation failed for user {user_id}: {e}", exc_info=True)
             return {"status": "error", "reason": str(e)}
 
     if event == "PAYMENT_REFUNDED" and external_ref:
@@ -208,6 +262,7 @@ def process_webhook(db, payload: dict, webhook_token: str = None) -> dict:
             }).execute()
             return {"status": "processed", "action": "deactivated"}
         except Exception as e:
+            logger.error(f"Deactivation failed for user {external_ref}: {e}")
             return {"status": "error", "reason": str(e)}
 
     return {"status": "processed", "action": "logged"}
@@ -215,7 +270,7 @@ def process_webhook(db, payload: dict, webhook_token: str = None) -> dict:
 
 def sandbox_confirm_payment(payment_id: str) -> dict:
     """(Sandbox only) Confirm a payment for testing."""
-    with httpx.Client(base_url=ASAAS_BASE_URL, headers=_headers(), timeout=30) as client:
+    with httpx.Client(base_url=_base_url(), headers=_headers(), timeout=30) as client:
         response = client.post(f"/v3/sandbox/payment/{payment_id}/confirm")
         if response.status_code == 200:
             return response.json()
