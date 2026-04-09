@@ -4,8 +4,10 @@ services:
     container_name: pizzacost-api
     restart: unless-stopped
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
+    expose:
+      - "8000"
     ports:
-      - "8020:8000"
+      - "127.0.0.1:8020:8000"
     env_file: .env
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -13,3 +15,15 @@ services:
       timeout: 10s
       start_period: 30s
       retries: 3
+    networks:
+      - kallytur_turismo-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pizzacost.rule=Host(`lpi.cardapiosnack.com.br`)"
+      - "traefik.http.routers.pizzacost.entrypoints=websecure"
+      - "traefik.http.routers.pizzacost.tls.certresolver=letsencrypt"
+      - "traefik.http.services.pizzacost.loadbalancer.server.port=8000"
+
+networks:
+  kallytur_turismo-net:
+    external: true
