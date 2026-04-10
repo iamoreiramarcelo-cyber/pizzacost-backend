@@ -107,12 +107,13 @@ def chat(db, user_id: str, message: str, image_base64: str = None) -> str:
     else:
         messages.append({"role": "user", "content": message})
 
-    # Call OpenAI
+    # Call OpenAI — use gpt-4o for vision, gpt-4o-mini for text (3x faster)
+    model = "gpt-4o" if image_base64 else "gpt-4o-mini"
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=model,
             messages=messages,
-            max_tokens=1500,
+            max_tokens=1000,
             temperature=0.3,
         )
         assistant_message = response.choices[0].message.content
