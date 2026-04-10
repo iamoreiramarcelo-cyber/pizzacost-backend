@@ -15,10 +15,24 @@ def _base_url() -> str:
     return "https://api-sandbox.asaas.com"
 
 
-def _headers():
+def _get_asaas_key() -> str:
+    """Get Asaas API key — from env or secret file (Docker $ escaping workaround)."""
     settings = get_settings()
+    key = settings.ASAAS_API_KEY
+    if key and len(key) > 50:
+        return key
+    # Fallback: read from mounted secret file
+    try:
+        with open("/run/secrets/asaas_key", "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        pass
+    return key or ""
+
+
+def _headers():
     return {
-        "access_token": settings.ASAAS_API_KEY,
+        "access_token": _get_asaas_key(),
         "Content-Type": "application/json",
     }
 
