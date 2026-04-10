@@ -19,7 +19,7 @@ from app.services import combo_service, activity_service
 router = APIRouter(prefix="/api/v1/combos", tags=["Combos"])
 
 
-@router.get("/", response_model=PaginatedResponse[ComboResponse])
+@router.get("", response_model=PaginatedResponse[ComboResponse])
 async def list_combos(
     request: Request,
     page: int = 1,
@@ -49,7 +49,7 @@ async def get_combo(
     return ComboResponse(**item)
 
 
-@router.post("/", response_model=ComboResponse, status_code=201)
+@router.post("", response_model=ComboResponse, status_code=201)
 async def create_combo(
     body: ComboCreate,
     request: Request,

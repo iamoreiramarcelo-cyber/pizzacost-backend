@@ -19,7 +19,7 @@ from app.services import pizza_service, activity_service
 router = APIRouter(prefix="/api/v1/pizzas", tags=["Pizzas"])
 
 
-@router.get("/", response_model=PaginatedResponse[PizzaResponse])
+@router.get("", response_model=PaginatedResponse[PizzaResponse])
 async def list_pizzas(
     request: Request,
     page: int = 1,
@@ -63,7 +63,7 @@ async def get_pizza_details(
     return item
 
 
-@router.post("/", response_model=PizzaResponse, status_code=201)
+@router.post("", response_model=PizzaResponse, status_code=201)
 async def create_pizza(
     body: PizzaCreate,
     request: Request,

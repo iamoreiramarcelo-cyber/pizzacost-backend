@@ -19,7 +19,7 @@ from app.services import tamanho_service, activity_service
 router = APIRouter(prefix="/api/v1/tamanhos", tags=["Tamanhos"])
 
 
-@router.get("/", response_model=PaginatedResponse[TamanhoResponse])
+@router.get("", response_model=PaginatedResponse[TamanhoResponse])
 async def list_tamanhos(
     request: Request,
     page: int = 1,
@@ -49,7 +49,7 @@ async def get_tamanho(
     return TamanhoResponse(**item)
 
 
-@router.post("/", response_model=TamanhoResponse, status_code=201)
+@router.post("", response_model=TamanhoResponse, status_code=201)
 async def create_tamanho(
     body: TamanhoCreate,
     request: Request,

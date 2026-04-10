@@ -23,7 +23,7 @@ from app.services import (
 router = APIRouter(prefix="/api/v1/me", tags=["Profile"])
 
 
-@router.get("/", response_model=ProfileResponse)
+@router.get("", response_model=ProfileResponse)
 async def get_profile(
     request: Request,
     user: UserContext = Depends(get_current_user),
@@ -37,7 +37,7 @@ async def get_profile(
     return ProfileResponse(**profile)
 
 
-@router.put("/", response_model=ProfileResponse)
+@router.put("", response_model=ProfileResponse)
 async def update_profile(
     body: ProfileUpdate,
     request: Request,

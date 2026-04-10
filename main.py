@@ -40,7 +40,7 @@ def create_app() -> FastAPI:
         redoc_url="/api/redoc" if not settings.is_production else None,
         openapi_url="/api/openapi.json" if not settings.is_production else None,
         lifespan=lifespan,
-        redirect_slashes=True,
+        redirect_slashes=False,
     )
 
     # --- Rate Limiting ---

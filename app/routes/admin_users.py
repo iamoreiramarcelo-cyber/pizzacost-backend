@@ -19,7 +19,7 @@ from app.services import admin_service, activity_service
 router = APIRouter(prefix="/api/v1/admin/users", tags=["Admin - Users"])
 
 
-@router.get("/", response_model=PaginatedResponse[AdminUserListItem])
+@router.get("", response_model=PaginatedResponse[AdminUserListItem])
 async def list_users(
     request: Request,
     page: int = 1,
@@ -39,7 +39,7 @@ async def list_users(
     )
 
 
-@router.post("/", status_code=201)
+@router.post("", status_code=201)
 async def create_user(
     body: AdminUserCreate,
     request: Request,

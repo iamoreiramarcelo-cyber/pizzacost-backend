@@ -10,7 +10,7 @@ from app.services import dashboard_service
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"])
 
 
-@router.get("/")
+@router.get("")
 async def get_dashboard(
     request: Request,
     user: UserContext = Depends(get_current_user),

@@ -15,7 +15,7 @@ from app.services import activity_service
 router = APIRouter(prefix="/api/v1/admin/settings", tags=["Admin - Settings"])
 
 
-@router.get("/")
+@router.get("")
 async def list_settings(
     request: Request,
     user: UserContext = Depends(require_super_admin),

@@ -19,7 +19,7 @@ from app.services import borda_service, activity_service
 router = APIRouter(prefix="/api/v1/bordas", tags=["Bordas"])
 
 
-@router.get("/", response_model=PaginatedResponse[BordaResponse])
+@router.get("", response_model=PaginatedResponse[BordaResponse])
 async def list_bordas(
     request: Request,
     page: int = 1,
@@ -49,7 +49,7 @@ async def get_borda(
     return BordaResponse(**item)
 
 
-@router.post("/", response_model=BordaResponse, status_code=201)
+@router.post("", response_model=BordaResponse, status_code=201)
 async def create_borda(
     body: BordaCreate,
     request: Request,

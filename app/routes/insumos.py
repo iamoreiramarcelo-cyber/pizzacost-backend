@@ -19,7 +19,7 @@ from app.services import insumo_service, activity_service
 router = APIRouter(prefix="/api/v1/insumos", tags=["Insumos"])
 
 
-@router.get("/", response_model=PaginatedResponse[InsumoResponse])
+@router.get("", response_model=PaginatedResponse[InsumoResponse])
 async def list_insumos(
     request: Request,
     page: int = 1,
@@ -49,7 +49,7 @@ async def get_insumo(
     return InsumoResponse(**item)
 
 
-@router.post("/", response_model=InsumoResponse, status_code=201)
+@router.post("", response_model=InsumoResponse, status_code=201)
 async def create_insumo(
     body: InsumoCreate,
     request: Request,
