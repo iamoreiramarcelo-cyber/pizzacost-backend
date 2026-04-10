@@ -83,6 +83,9 @@ async def subscribe(
 
     db.table("profiles").update({"asaas_subscription_id": subscription["id"]}).eq("id", user.id).execute()
 
+    # Tag user as 'aquecido' (entered checkout)
+    db.table("profiles").update({"tag": "aquecido"}).eq("id", user.id).execute()
+
     # Get first payment for QR/boleto — but NEVER activate here
     payments = asaas_service.get_subscription_payments(subscription["id"])
     first_payment = payments[0] if payments else None
@@ -195,6 +198,7 @@ async def cancel_subscription_route(
     db.table("profiles").update({
         "subscription_status": "free",
         "asaas_subscription_id": None,
+        "tag": "nao_assinante",
     }).eq("id", user.id).execute()
 
     # Log history

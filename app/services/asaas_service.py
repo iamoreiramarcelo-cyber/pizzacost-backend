@@ -231,6 +231,7 @@ def process_webhook(db, payload: dict, webhook_token: str = None) -> dict:
                 update_data["asaas_subscription_id"] = subscription_id
 
             result = db.table("profiles").update(update_data).eq("id", user_id).execute()
+            db.table("profiles").update({"tag": "assinante"}).eq("id", user_id).execute()
             logger.info(f"Profile updated to 'paid' for user {user_id}: {result.data}")
 
             try:
@@ -253,6 +254,7 @@ def process_webhook(db, payload: dict, webhook_token: str = None) -> dict:
     if event == "PAYMENT_REFUNDED" and external_ref:
         try:
             db.table("profiles").update({"subscription_status": "free"}).eq("id", external_ref).execute()
+            db.table("profiles").update({"tag": "nao_assinante"}).eq("id", external_ref).execute()
             db.table("subscription_history").insert({
                 "user_id": external_ref,
                 "old_status": "paid",
