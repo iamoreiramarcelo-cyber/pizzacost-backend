@@ -79,6 +79,7 @@ def create_app() -> FastAPI:
         admin_reports,
         admin_settings,
         admin_lgpd,
+        chat,
     )
 
     # Each router already has its own prefix and tags defined internally
@@ -98,6 +99,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_reports.router)
     app.include_router(admin_settings.router)
     app.include_router(admin_lgpd.router)
+    app.include_router(chat.router)
 
     return app
 

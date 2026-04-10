@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Asaas
     ASAAS_API_KEY: str = ""
 
+    # OpenAI
+    OPENAI_API_KEY: str = ""
+
     # Application
     APP_URL: str = "http://localhost:3000"
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173,https://calculo-de-pizza-main.vercel.app"
