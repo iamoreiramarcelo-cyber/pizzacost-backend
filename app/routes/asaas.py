@@ -86,9 +86,15 @@ async def subscribe(
     # Tag user as 'aquecido' (entered checkout)
     db.table("profiles").update({"tag": "aquecido"}).eq("id", user.id).execute()
 
-    # Get first payment for QR/boleto — but NEVER activate here
-    payments = asaas_service.get_subscription_payments(subscription["id"])
-    first_payment = payments[0] if payments else None
+    # Get first payment for QR/boleto — retry a few times (Asaas prod is async)
+    import time as _time
+    first_payment = None
+    for _attempt in range(5):
+        payments = asaas_service.get_subscription_payments(subscription["id"])
+        if payments:
+            first_payment = payments[0]
+            break
+        _time.sleep(1)  # Wait 1s and retry
 
     result = {
         "subscription_id": subscription["id"],
@@ -98,13 +104,22 @@ async def subscribe(
         "next_due_date": subscription.get("nextDueDate"),
     }
 
+    logger.info(f"Subscribe: first_payment={'found: '+first_payment['id'] if first_payment else 'NONE'}")
+
     if first_payment and data.billing_type in ("PIX", "UNDEFINED"):
-        try:
-            pix_data = asaas_service.get_payment_pix_qrcode(first_payment["id"])
-            result["pix_qrcode_image"] = pix_data.get("encodedImage")
-            result["pix_payload"] = pix_data.get("payload")
-        except Exception:
-            pass
+        # PIX QR may take a moment to generate — retry
+        for _pix_attempt in range(3):
+            try:
+                pix_data = asaas_service.get_payment_pix_qrcode(first_payment["id"])
+                if pix_data.get("encodedImage"):
+                    result["pix_qrcode_image"] = pix_data["encodedImage"]
+                    result["pix_payload"] = pix_data.get("payload")
+                    logger.info(f"PIX QR generated for payment {first_payment['id']}")
+                    break
+                _time.sleep(1)
+            except Exception as e:
+                logger.warning(f"PIX QR attempt {_pix_attempt+1} failed: {e}")
+                _time.sleep(1)
 
     if first_payment and data.billing_type == "BOLETO":
         try:
