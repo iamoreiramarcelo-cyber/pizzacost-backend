@@ -229,36 +229,36 @@ async def request_reset(
             on_conflict="email",
         ).execute()
 
-        # Send via Resend
+        # Send via Resend (non-blocking — respond first, send async)
         settings = get_settings()
         if settings.RESEND_API_KEY:
-            resend.api_key = settings.RESEND_API_KEY
-            try:
-                resend.Emails.send(
-                    {
-                        "from": settings.RESEND_FROM_EMAIL,
+            import threading
+            def _send_email():
+                try:
+                    resend.api_key = settings.RESEND_API_KEY
+                    resend.Emails.send({
+                        "from": "PizzaCost Pro <contato@cardapiosnack.com.br>",
                         "to": email,
-                        "subject": "Seu codigo de verificacao - PizzaCost Pro",
-                        "html": f"""
-                        <div style="font-family:'Plus Jakarta Sans',sans-serif;max-width:500px;margin:0 auto;padding:40px 32px;background:#fff;border-radius:16px">
-                            <div style="text-align:center;margin-bottom:32px">
-                                <div style="display:inline-block;background:#DC2626;padding:12px;border-radius:16px;margin-bottom:12px">
-                                    <span style="color:white;font-size:24px;font-weight:bold">P</span>
-                                </div>
-                                <h1 style="color:#18181b;font-size:24px;margin:8px 0 0">PizzaCost Pro</h1>
-                            </div>
-                            <h2 style="color:#18181b;font-size:20px;text-align:center;margin-bottom:8px">Codigo de Verificacao</h2>
-                            <p style="color:#71717a;text-align:center;margin-bottom:32px;font-size:14px">Use o codigo abaixo para redefinir sua senha:</p>
-                            <div style="background:#f4f4f5;border-radius:12px;padding:24px;text-align:center;margin-bottom:32px">
-                                <span style="font-size:36px;font-weight:800;letter-spacing:8px;color:#DC2626;font-family:monospace">{code}</span>
-                            </div>
-                            <p style="color:#a1a1aa;text-align:center;font-size:12px">Este codigo expira em 15 minutos.<br>Se voce nao solicitou isso, ignore este email.</p>
-                        </div>
-                        """,
-                    }
-                )
-            except Exception as e:
-                logger.error(f"Failed to send reset email: {e}")
+                        "subject": f"Codigo {code} - Redefinir Senha - PizzaCost Pro",
+                        "html": f"""<div style="font-family:system-ui,sans-serif;max-width:500px;margin:0 auto;padding:40px 32px;background:#fff">
+<div style="text-align:center;margin-bottom:32px">
+<div style="display:inline-block;background:#DC2626;width:48px;height:48px;border-radius:12px;line-height:48px;margin-bottom:8px">
+<span style="color:white;font-size:24px;font-weight:bold">P</span>
+</div>
+<h1 style="color:#18181b;font-size:22px;margin:8px 0 0">PizzaCost Pro</h1>
+</div>
+<h2 style="color:#18181b;font-size:18px;text-align:center;margin-bottom:4px">Codigo de Verificacao</h2>
+<p style="color:#71717a;text-align:center;margin-bottom:24px;font-size:14px">Use o codigo abaixo para redefinir sua senha:</p>
+<div style="background:#f4f4f5;border-radius:12px;padding:20px;text-align:center;margin-bottom:24px">
+<span style="font-size:32px;font-weight:800;letter-spacing:8px;color:#DC2626;font-family:monospace">{code}</span>
+</div>
+<p style="color:#a1a1aa;text-align:center;font-size:12px">Expira em 15 minutos. Se nao solicitou, ignore.</p>
+</div>""",
+                    })
+                    logger.info(f"Reset email sent to {email}")
+                except Exception as e:
+                    logger.error(f"Failed to send reset email: {e}")
+            threading.Thread(target=_send_email, daemon=True).start()
 
     return {"data": {"message": "Se o email estiver cadastrado, voce recebera um codigo de verificacao."}}
 
