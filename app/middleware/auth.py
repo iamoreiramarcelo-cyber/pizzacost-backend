@@ -22,18 +22,24 @@ class UserContext:
 
 
 def _validate_token(token: str) -> dict:
-    """Validate a Supabase JWT by calling Supabase Auth getUser.
-    This works regardless of the signing algorithm (HS256 or ES256)."""
-    from supabase import create_client
+    """Validate a Supabase JWT by calling the Supabase Auth API directly.
+    Uses httpx for speed — no SDK instantiation overhead."""
+    import httpx
     settings = get_settings()
-    # Create a temporary client with the user's token to validate it
-    client = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
     try:
-        response = client.auth.get_user(token)
-        if response and response.user:
+        response = httpx.get(
+            f"{settings.SUPABASE_URL}/auth/v1/user",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "apikey": settings.SUPABASE_ANON_KEY,
+            },
+            timeout=5,
+        )
+        if response.status_code == 200:
+            user = response.json()
             return {
-                "sub": response.user.id,
-                "email": response.user.email,
+                "sub": user.get("id"),
+                "email": user.get("email"),
             }
     except Exception as e:
         logger.debug(f"Token validation failed: {e}")
