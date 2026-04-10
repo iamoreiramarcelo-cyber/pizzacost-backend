@@ -95,8 +95,12 @@ async def get_combo(db: Client, user_id: str, combo_id: str) -> dict:
 async def create_combo(db: Client, user_id: str, data: dict) -> dict:
     """Create a new combo, calculating total cost from included pizzas.
 
-    Validates that all referenced pizza IDs belong to the user.
+    Validates subscription limits and that all referenced pizza IDs belong to the user.
     """
+    from app.services.subscription_service import check_limit
+
+    await check_limit(db, user_id, "max_combos")
+
     combo_pizzas = data["pizzas"]
     combo_pizzas_dicts = [
         p if isinstance(p, dict) else p.model_dump() for p in combo_pizzas

@@ -35,6 +35,9 @@ def send_chat(
     db: Client = Depends(get_supabase_client),
 ):
     """Send a chat message to the AI assistant."""
+    profile = db.table("profiles").select("subscription_status").eq("id", user.id).single().execute()
+    if not profile.data or profile.data.get("subscription_status") != "paid":
+        raise AppException("SUBSCRIPTION_REQUIRED", "Esta funcionalidade requer o plano Pro.", 403)
     response = chat_service.chat(db, user.id, data.message, data.image_base64)
     return {"data": {"message": response}}
 
@@ -46,6 +49,9 @@ def scan_receipt(
     db: Client = Depends(get_supabase_client),
 ):
     """Scan a receipt image and auto-update insumos."""
+    profile = db.table("profiles").select("subscription_status").eq("id", user.id).single().execute()
+    if not profile.data or profile.data.get("subscription_status") != "paid":
+        raise AppException("SUBSCRIPTION_REQUIRED", "Esta funcionalidade requer o plano Pro.", 403)
     if not data.image_base64:
         raise AppException("VALIDATION_ERROR", "Envie uma imagem da nota fiscal.", 400)
     result = chat_service.process_receipt(db, user.id, data.image_base64)
@@ -58,6 +64,9 @@ def get_history(
     db: Client = Depends(get_supabase_client),
 ):
     """Get chat message history."""
+    profile = db.table("profiles").select("subscription_status").eq("id", user.id).single().execute()
+    if not profile.data or profile.data.get("subscription_status") != "paid":
+        raise AppException("SUBSCRIPTION_REQUIRED", "Esta funcionalidade requer o plano Pro.", 403)
     messages = db.table("chat_messages").select("role, content, created_at").eq("user_id", user.id).order("created_at", desc=True).limit(50).execute().data or []
     return {"data": list(reversed(messages))}
 
@@ -78,6 +87,9 @@ def get_menu_analysis(
     db: Client = Depends(get_supabase_client),
 ):
     """Run menu optimization analysis."""
+    profile = db.table("profiles").select("subscription_status").eq("id", user.id).single().execute()
+    if not profile.data or profile.data.get("subscription_status") != "paid":
+        raise AppException("SUBSCRIPTION_REQUIRED", "Esta funcionalidade requer o plano Pro.", 403)
     result = chat_service.analyze_menu(db, user.id)
     return {"data": result}
 
@@ -90,6 +102,9 @@ def update_stock(
     db: Client = Depends(get_supabase_client),
 ):
     """Update stock for an insumo."""
+    profile = db.table("profiles").select("subscription_status").eq("id", user.id).single().execute()
+    if not profile.data or profile.data.get("subscription_status") != "paid":
+        raise AppException("SUBSCRIPTION_REQUIRED", "Esta funcionalidade requer o plano Pro.", 403)
     # Verify ownership
     insumo = db.table("insumos").select("id, quantidade_estoque").eq("id", insumo_id).eq("user_id", user.id).single().execute()
     if not insumo.data:
@@ -122,6 +137,9 @@ def stock_overview(
     db: Client = Depends(get_supabase_client),
 ):
     """Get stock overview with alerts and capacity."""
+    profile = db.table("profiles").select("subscription_status").eq("id", user.id).single().execute()
+    if not profile.data or profile.data.get("subscription_status") != "paid":
+        raise AppException("SUBSCRIPTION_REQUIRED", "Esta funcionalidade requer o plano Pro.", 403)
     result = chat_service.get_stock_overview(db, user.id)
     return {"data": result}
 
@@ -133,6 +151,9 @@ def generate_shopping_list(
     db: Client = Depends(get_supabase_client),
 ):
     """Generate a shopping list from planned production."""
+    profile = db.table("profiles").select("subscription_status").eq("id", user.id).single().execute()
+    if not profile.data or profile.data.get("subscription_status") != "paid":
+        raise AppException("SUBSCRIPTION_REQUIRED", "Esta funcionalidade requer o plano Pro.", 403)
     result = chat_service.generate_shopping_list(db, user.id, data.planned)
 
     # Save if name provided
@@ -154,5 +175,8 @@ def list_shopping_lists(
     db: Client = Depends(get_supabase_client),
 ):
     """List saved shopping lists."""
+    profile = db.table("profiles").select("subscription_status").eq("id", user.id).single().execute()
+    if not profile.data or profile.data.get("subscription_status") != "paid":
+        raise AppException("SUBSCRIPTION_REQUIRED", "Esta funcionalidade requer o plano Pro.", 403)
     lists = db.table("shopping_lists").select("*").eq("user_id", user.id).order("created_at", desc=True).limit(20).execute().data or []
     return {"data": lists}
